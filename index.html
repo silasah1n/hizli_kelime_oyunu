@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fastest Coder - GDG Edition</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        canvas {
+            background-color: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            border: 2px solid #333;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="900" height="700"></canvas>
+
+<script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // --- AYARLAR ---
+    const COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"]; // GDG Renkleri
+    const WORDS_LIST = ["Flutter", "Google", "Dart", "Firebase", "Gemini", "Android", "Cloud", "GDG", "DevFest", "Kotlin", "Python"];
+    
+    let highScore = localStorage.getItem("highScore") || 0;
+    let score = 0;
+    let lives = 3;
+    let difficultyBoost = 0;
+    let words = [];
+    let userInput = "";
+    let gameOver = false;
+    let spawnTimer = 0;
+
+    // --- SES ÜRETİCİ (Dıııttt) ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playBeep() {
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.3);
+    }
+
+    class Word {
+        constructor() {
+            this.text = WORDS_LIST[Math.floor(Math.random() * WORDS_LIST.length)];
+            this.x = Math.random() * (canvas.width - 250) + 50;
+            this.y = -50;
+            this.speed = Math.random() * (0.9 - 0.5) + 0.5; // Yavaş hız
+            this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+            
+            // Üst üste binmeyi engellemek için basit kontrol
+            for (let other of words) {
+                if (Math.abs(this.x - other.x) < 170 && other.y < 100) {
+                    this.x = Math.random() * (canvas.width - 250) + 50;
+                }
+            }
+        }
+
+        update() {
+            this.y += this.speed + difficultyBoost;
+        }
+
+        draw() {
+            ctx.fillStyle = this.color;
+            ctx.font = "bold 38px Arial";
+            ctx.fillText(this.text, this.x, this.y);
+        }
+    }
+
+    function resetGame() {
+        score = 0;
+        lives = 3;
+        difficultyBoost = 0;
+        words = [];
+        userInput = "";
+        gameOver = false;
+        spawnTimer = 0;
+    }
+
+    // --- KLAVYE DİNLEYİCİ ---
+    window.addEventListener("keydown", (e) => {
+        if (gameOver) {
+            if (e.key.toLowerCase() === 'r') resetGame();
+            return;
+        }
+
+        if (e.key === " ") {
+            e.preventDefault(); // Sayfanın aşağı kaymasını engelle
+            let found = false;
+            for (let i = words.length - 1; i >= 0; i--) {
+                if (userInput.trim().toLowerCase() === words[i].text.toLowerCase()) {
+                    words.splice(i, 1);
+                    score += 10;
+                    difficultyBoost += 0.02;
+                    found = true;
+                    break;
+                }
+            }
+            userInput = "";
+        } else if (e.key === "Backspace") {
+            userInput = userInput.slice(0, -1);
+        } else if (e.key.length === 1) {
+            userInput += e.key;
+        }
+    });
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!gameOver) {
+            // Kelime Üretme
+            spawnTimer++;
+            if (spawnTimer > 100) {
+                words.push(new Word());
+                spawnTimer = 0;
+            }
+
+            // Kelimeleri Güncelle ve Çiz
+            for (let i = words.length - 1; i >= 0; i--) {
+                words[i].update();
+                words[i].draw();
+
+                // Yere değme kontrolü
+                if (words[i].y > canvas.height - 110) {
+                    words.splice(i, 1);
+                    lives--;
+                    playBeep();
+                    if (lives <= 0) {
+                        gameOver = true;
+                        if (score > highScore) {
+                            highScore = score;
+                            localStorage.setItem("highScore", highScore);
+                        }
+                    }
+                }
+            }
+
+            // Alt Panel
+            ctx.fillStyle = "#f0f0f0";
+            ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(0, canvas.height - 100, canvas.width, 100);
+
+            // Kullanıcı Yazısı
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 38px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText(userInput, canvas.width / 2, canvas.height - 40);
+
+            // Skor ve Can
+            ctx.textAlign = "left";
+            ctx.fillStyle = "#4285F4";
+            ctx.font = "bold 26px Arial";
+            ctx.fillText("SKOR: " + score, 20, 40);
+
+            ctx.fillStyle = "#34A853";
+            ctx.textAlign = "center";
+            ctx.fillText("REKOR: " + highScore, canvas.width / 2, 40);
+
+            ctx.fillStyle = "#EA4335";
+            ctx.textAlign = "right";
+            ctx.fillText("CAN: " + lives, canvas.width - 20, 40);
+
+        } else {
+            // Game Over Ekranı
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#EA4335";
+            ctx.font = "bold 60px Arial";
+            ctx.fillText("OYUN BİTTİ!", canvas.width / 2, canvas.height / 2 - 60);
+
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 30px Arial";
+            ctx.fillText("TOPLAM SKOR: " + score, canvas.width / 2, canvas.height / 2);
+            
+            ctx.fillStyle = "#4285F4";
+            ctx.fillText("Yeni Oyun İçin 'R' Bas", canvas.width / 2, canvas.height / 2 + 80);
+        }
+
+        requestAnimationFrame(draw);
+    }
+
+    draw();
+</script>
+
+</body>
+</html>
