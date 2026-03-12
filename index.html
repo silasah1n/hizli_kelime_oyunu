@@ -2,159 +2,225 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fastest Coder - GDG Edition</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #f0f0f0; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        canvas { background: white; border: 3px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-        #overlay { position: absolute; background: rgba(255,255,255,0.95); width: 900px; height: 700px; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; border: 3px solid #333; }
-        button { padding: 15px 40px; font-size: 24px; cursor: pointer; background: #4285F4; color: white; border: none; border-radius: 5px; font-weight: bold; }
-        button:hover { background: #3367d6; }
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        canvas {
+            background-color: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            border: 2px solid #333;
+        }
     </style>
 </head>
 <body>
 
-    <div id="overlay">
-        <h1 style="color: #4285F4; margin-bottom: 10px;">Fastest Coder</h1>
-        <p style="font-size: 18px;">Kelimeleri yaz ve <b>SPACE (Boşluk)</b> tuşuna bas!</p>
-        <button onclick="startGame()">OYUNU BAŞLAT</button>
-    </div>
-
-    <canvas id="gameCanvas" width="900" height="700"></canvas>
+<canvas id="gameCanvas" width="900" height="700"></canvas>
 
 <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
-    const overlay = document.getElementById("overlay");
 
-    const COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"];
+    // --- AYARLAR ---
+    const COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"]; 
     const WORDS_LIST = ["Flutter", "Google", "Dart", "Firebase", "Gemini", "Android", "Cloud", "GDG", "DevFest", "Kotlin", "Go", "Python"];
     
     let highScore = localStorage.getItem("highScore") || 0;
-    let score = 0, lives = 3, difficulty = 0, words = [], userInput = "", gameOver = false, spawnTimer = 0, gameStarted = false;
+    let score = 0;
+    let lives = 3;
+    let difficultyBoost = 0;
+    let words = [];
+    let userInput = "";
+    let gameOver = false;
+    let spawnTimer = 0;
 
-    let audioCtx = null;
+    // --- SES ÜRETİCİ ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playBeep() {
-        if (!audioCtx) return;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain); gain.connect(audioCtx.destination);
-        osc.type = "sine"; osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-        osc.start(); osc.stop(audioCtx.currentTime + 0.2);
-    }
-
-    function startGame() {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        overlay.style.display = "none";
-        gameStarted = true;
-        resetGame();
-        requestAnimationFrame(draw);
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.type = "sawtooth";
+        oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.4);
     }
 
     class Word {
         constructor() {
             this.text = WORDS_LIST[Math.floor(Math.random() * WORDS_LIST.length)];
-            // Uzun kelimelerin sağdan taşmaması için genişliği hesaba katıyoruz (Güvenli alan: 50px - 550px arası)
-            // Böylece 300px'lik bir kelime bile 600px+300px = 900px sınırında kalır.
-            this.x = Math.random() * 550 + 50; 
-            this.y = -50;
-            this.speed = Math.random() * 0.3 + 0.5; // Kelimeler artık daha yavaş ve dengeli
-            this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+            ctx.font = "bold 38px Arial";
+            const wordWidth = ctx.measureText(this.text).width;
             
-            // Üst üste binmeyi engellemek için konum düzeltme
-            for (let other of words) {
-                if (Math.abs(this.x - other.x) < 180 && other.y < 80) {
-                    this.x = (this.x + 200) % 650 + 50; 
+            this.y = -40;
+            this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+            this.speed = Math.random() * (0.8 - 0.5) + 0.5;
+
+            // --- AYRIK GELME MANTIĞI ---
+            let attempts = 0;
+            let isOverlapping = true;
+            
+            while (isOverlapping && attempts < 20) {
+                // Rastgele X konumu belirle
+                this.x = Math.random() * (canvas.width - wordWidth - 60) + 30;
+                isOverlapping = false;
+
+                // Mevcut kelimelerle yatayda çok yakın mı kontrol et (Sadece üsttekilerle)
+                for (let other of words) {
+                    if (other.y < 150) { // Sadece ekranın üst kısmındaki kelimeleri kontrol et
+                        let dist = Math.abs(this.x - other.x);
+                        if (dist < 180) { // 180px'den yakınsa çakışma kabul et
+                            isOverlapping = true;
+                            break;
+                        }
+                    }
                 }
+                attempts++;
             }
         }
-        update() { this.y += this.speed + difficulty; }
+
+        update() {
+            this.y += this.speed + difficultyBoost;
+        }
+
         draw() {
             ctx.fillStyle = this.color;
-            ctx.font = "bold 34px Arial"; // Fontu bir tık küçülttüm ki sığması kolaylaşsın
-            ctx.textAlign = "left";
+            ctx.font = "bold 38px Arial";
+            ctx.textAlign = "left"; 
             ctx.fillText(this.text, this.x, this.y);
         }
     }
 
     function resetGame() {
-        score = 0; lives = 3; difficulty = 0; words = []; userInput = ""; gameOver = false;
+        score = 0;
+        lives = 3;
+        difficultyBoost = 0;
+        words = [];
+        userInput = "";
+        gameOver = false;
+        spawnTimer = 0;
     }
 
     window.addEventListener("keydown", (e) => {
-        if (!gameStarted) return;
         if (gameOver) {
             if (e.key.toLowerCase() === 'r') resetGame();
             return;
         }
 
-        if (e.key === " ") {
-            e.preventDefault();
-            let foundIndex = -1;
+        if (e.key === " " || e.key === "Enter") {
+            e.preventDefault(); 
+            let targetIndex = -1;
+            let lowestY = -1;
+
             for (let i = 0; i < words.length; i++) {
                 if (userInput.trim().toLowerCase() === words[i].text.toLowerCase()) {
-                    foundIndex = i;
-                    break;
+                    if (words[i].y > lowestY) {
+                        lowestY = words[i].y;
+                        targetIndex = i;
+                    }
                 }
             }
-            if(foundIndex !== -1) {
-                words.splice(foundIndex, 1);
+
+            if (targetIndex !== -1) {
+                words.splice(targetIndex, 1);
                 score += 10;
-                difficulty += 0.01; // Hızlanma oranını stant için çok daha yavaş yaptım
+                difficultyBoost += 0.02; 
             }
             userInput = "";
         } else if (e.key === "Backspace") {
             userInput = userInput.slice(0, -1);
-        } else if (e.key.length === 1 && e.key !== "Enter") {
+        } else if (e.key.length === 1) {
             userInput += e.key;
         }
     });
 
     function draw() {
-        if (!gameStarted) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (!gameOver) {
             spawnTimer++;
-            // Kelime gelme sıklığı: 120 karede bir (yaklaşık 2 saniyede bir)
-            if (spawnTimer > 120) { words.push(new Word()); spawnTimer = 0; }
+            // Spawn hızının çok aşırı artmasını engellemek için taban değer (50) koyduk
+            let spawnRate = Math.max(60, 100 - (score / 7)); 
+            if (spawnTimer > spawnRate) {
+                words.push(new Word());
+                spawnTimer = 0;
+            }
 
             for (let i = words.length - 1; i >= 0; i--) {
                 words[i].update();
                 words[i].draw();
+
                 if (words[i].y > canvas.height - 110) {
                     words.splice(i, 1);
-                    lives--; playBeep();
+                    lives--;
+                    playBeep();
                     if (lives <= 0) {
                         gameOver = true;
-                        if (score > highScore) { highScore = score; localStorage.setItem("highScore", highScore); }
+                        if (score > highScore) {
+                            highScore = score;
+                            localStorage.setItem("highScore", highScore);
+                        }
                     }
                 }
             }
 
-            // Alt Panel (Yazı Alanı)
-            ctx.fillStyle = "#f9f9f9"; ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
-            ctx.strokeStyle = "#333"; ctx.lineWidth = 2; ctx.strokeRect(0, canvas.height - 100, canvas.width, 100);
-            
-            ctx.fillStyle = "#333"; ctx.font = "bold 38px Arial"; ctx.textAlign = "center";
+            // Alt Panel
+            ctx.fillStyle = "#f0f0f0";
+            ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(0, canvas.height - 100, canvas.width, 100);
+
+            // Giriş Yazısı
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 38px Arial";
+            ctx.textAlign = "center";
             ctx.fillText(userInput, canvas.width / 2, canvas.height - 40);
 
-            // Skor Paneli
-            ctx.textAlign = "left"; ctx.fillStyle = "#4285F4"; ctx.font = "bold 22px Arial";
-            ctx.fillText("SKOR: " + score, 30, 45);
-            ctx.textAlign = "center"; ctx.fillStyle = "#34A853";
-            ctx.fillText("REKOR: " + highScore, canvas.width / 2, 45);
-            ctx.textAlign = "right"; ctx.fillStyle = "#EA4335";
-            ctx.fillText("CAN: " + lives, canvas.width - 30, 45);
+            // Üst Bilgiler
+            ctx.font = "bold 26px Arial";
+            ctx.textAlign = "left";
+            ctx.fillStyle = "#4285F4";
+            ctx.fillText("SKOR: " + score, 20, 40);
+            ctx.fillStyle = "#34A853";
+            ctx.textAlign = "center";
+            ctx.fillText("REKOR: " + highScore, canvas.width / 2, 40);
+            ctx.fillStyle = "#EA4335";
+            ctx.textAlign = "right";
+            ctx.fillText("CAN: " + lives, canvas.width - 20, 40);
+
         } else {
-            ctx.textAlign = "center"; ctx.fillStyle = "#EA4335"; ctx.font = "bold 60px Arial";
-            ctx.fillText("OYUN BİTTİ!", canvas.width / 2, canvas.height / 2 - 50);
-            ctx.fillStyle = "#333"; ctx.font = "bold 28px Arial";
-            ctx.fillText("TOPLAM SKOR: " + score, canvas.width / 2, canvas.height / 2 + 20);
-            ctx.fillStyle = "#4285F4"; ctx.fillText("Yeniden Başlatmak İçin 'R' Bas", canvas.width / 2, canvas.height / 2 + 90);
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#EA4335";
+            ctx.font = "bold 60px Arial";
+            ctx.fillText("OYUN BİTTİ!", canvas.width / 2, canvas.height / 2 - 60);
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 30px Arial";
+            ctx.fillText("TOPLAM SKOR: " + score, canvas.width / 2, canvas.height / 2);
+            ctx.fillStyle = "#4285F4";
+            ctx.fillText("Yeni Oyun İçin 'R' Bas", canvas.width / 2, canvas.height / 2 + 80);
         }
+
         requestAnimationFrame(draw);
     }
+
+    draw();
 </script>
+
 </body>
 </html>
